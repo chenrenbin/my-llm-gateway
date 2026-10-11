@@ -1,0 +1,64 @@
+service_name: llm-gateway
+
+# Leave empty to disable caller auth (dev). Set GATEWAY_API_KEY in production.
+api_keys:
+  - ${GATEWAY_API_KEY:-}
+
+database_url: data/gateway.db
+structured_output_retries: 1
+
+retry:
+  max_attempts_per_route: 2
+  base_delay_seconds: 0.25
+  max_delay_seconds: 4
+  retry_statuses: [408, 409, 429, 500, 502, 503, 504]
+
+circuit_breaker:
+  failure_threshold: 5
+  cooldown_seconds: 30
+
+rate_limit:
+  enabled: true
+  requests_per_minute: 60
+  burst: 10
+
+# Persisting model output is off by default (privacy).
+stream_checkpoint:
+  enabled: false
+  flush_interval_seconds: 1
+  max_chars: 200000
+
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    api_key: ${DEEPSEEK_API_KEY:-}
+    timeout_seconds: 120
+  deepseek_backup:
+    base_url: https://api.deepseek.com
+    api_key: ${DEEPSEEK_BACKUP_API_KEY:-}
+    timeout_seconds: 120
+  openai:
+    base_url: https://api.openai.com
+    api_key: ${OPENAI_API_KEY:-}
+    enabled: false
+    timeout_seconds: 120
+
+models:
+  general-primary:
+    strategy: priority
+    routes:
+      - provider: deepseek
+        model: deepseek-v4-flash
+        api: both
+      - provider: deepseek_backup
+        model: deepseek-chat
+        api: both
+
+# USD per 1M tokens.
+pricing:
+  deepseek-v4-flash:
+    input_per_million: 1.0
+    output_per_million: 4.0
+  deepseek-chat:
+    input_per_million: 0.8
+    output_per_million: 3.2
