@@ -1,9 +1,12 @@
 import itertools
+import logging
 import time
 from dataclasses import dataclass
 
 from ..domain.config import CircuitBreakerConfig, GatewayConfig, RouteTarget
 from ..domain.errors import GatewayError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,8 +67,18 @@ class ModelRouter:
     def record_failure(self, provider: str) -> None:
         state = self._circuits.setdefault(provider, CircuitState())
         state.failures += 1
-        if state.failures >= self._circuit_config.failure_threshold:
+        if state.failures >= self._circuit_config.failure_threshold and state.opened_at is None:
             state.opened_at = time.monotonic()
+            logger.warning(
+                "Circuit breaker opened; requests will route around this provider",
+                extra={
+                    "event": "circuit_breaker_open",
+                    "provider": provider,
+                    "failures": state.failures,
+                    "threshold": self._circuit_config.failure_threshold,
+                    "cooldown_seconds": self._circuit_config.cooldown_seconds,
+                },
+            )
 
     def _is_available(self, provider: str) -> bool:
         state = self._circuits.get(provider)
@@ -74,6 +87,10 @@ class ModelRouter:
         if time.monotonic() - state.opened_at >= self._circuit_config.cooldown_seconds:
             state.failures = 0
             state.opened_at = None
+            logger.info(
+                "Circuit breaker cooldown elapsed; allowing a trial request",
+                extra={"event": "circuit_breaker_half_open", "provider": provider},
+            )
             return True
         return False
 

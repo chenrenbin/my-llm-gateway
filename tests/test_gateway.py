@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import pytest
@@ -6,7 +7,7 @@ from tests.conftest import gateway_client, make_config
 
 
 @pytest.mark.asyncio
-async def test_chat_retries_then_falls_back_and_records_usage(tmp_path, auth_headers):
+async def test_chat_retries_then_falls_back_and_records_usage(tmp_path, auth_headers, caplog):
     calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -27,11 +28,12 @@ async def test_chat_retries_then_falls_back_and_records_usage(tmp_path, auth_hea
 
     config = make_config(tmp_path / "gateway.db")
     async with gateway_client(config, handler) as client:
-        response = await client.post(
-            "/v1/chat/completions",
-            headers=auth_headers,
-            json={"model": "smart", "messages": [{"role": "user", "content": "hi"}]},
-        )
+        with caplog.at_level(logging.WARNING, logger="gateway.application.gateway"):
+            response = await client.post(
+                "/v1/chat/completions",
+                headers=auth_headers,
+                json={"model": "smart", "messages": [{"role": "user", "content": "hi"}]},
+            )
         assert response.status_code == 200
         assert response.json()["choices"][0]["message"]["content"] == "hello"
         assert response.headers["x-request-id"].startswith("req_")
@@ -48,6 +50,14 @@ async def test_chat_retries_then_falls_back_and_records_usage(tmp_path, auth_hea
         assert usage["retries"] == 1
         assert usage["fallbacks"] == 1
         assert usage["cost_usd"] == pytest.approx(0.00005)
+
+        events = [r for r in caplog.records if r.__dict__.get("event")]
+        event_types = [r.__dict__["event"] for r in events]
+        assert "upstream_retry" in event_types
+        assert "route_fallback" in event_types
+        fallback = next(r for r in events if r.__dict__["event"] == "route_fallback")
+        assert fallback.__dict__["route_index"] == 1
+        assert fallback.__dict__["provider"] == "fallback"
 
 
 @pytest.mark.asyncio

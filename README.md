@@ -120,6 +120,8 @@ curl -s localhost:8000/v1/chat/completions \
 
 ### 使用 OpenAI SDK
 
+> 说明：`openai` 仅出现在下述**客户端示例**中，供你的调用方使用；本网关服务端依赖只有 `httpx`（见 `pyproject.toml`）。
+
 ```python
 from openai import OpenAI
 

@@ -1,10 +1,21 @@
 import json
 import logging
 import sys
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+@contextmanager
+def request_id(request_id: str | None):
+    """Bind the current coroutine's logs to a request id for the duration of a block."""
+    token = request_id_var.set(request_id)
+    try:
+        yield
+    finally:
+        request_id_var.reset(token)
 
 _STANDARD_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
     "message",

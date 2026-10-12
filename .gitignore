@@ -8,3 +8,6 @@ data/
 .ruff_cache/
 dist/
 build/
+
+# Teaching workspace
+llm-gateway-course/

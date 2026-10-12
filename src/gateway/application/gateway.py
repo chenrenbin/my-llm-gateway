@@ -12,6 +12,7 @@ from ..domain.errors import GatewayError, UpstreamError, error_payload
 from ..domain.models import UsageEvent
 from ..domain.ports import UpstreamClient, UsageRepository
 from ..infrastructure.tracing.usage_repo import usage_from_payload
+from ..observability.logging_setup import request_id_var
 from .costing import calculate_cost
 from .router import ModelRouter
 from .structured import (
@@ -78,6 +79,7 @@ class GatewayService:
         prompt_meta: tuple[str | None, int | None],
     ) -> tuple[dict[str, Any], str]:
         request_id = f"req_{uuid.uuid4().hex}"
+        token = request_id_var.set(request_id)
         started = time.perf_counter()
         requested_model = str(body["model"])
         event = UsageEvent(
@@ -123,9 +125,36 @@ class GatewayService:
                             ):
                                 break
                             event.retries += 1
+                            logger.warning(
+                                "Upstream request failed (%s); retrying on same route",
+                                exc.error_type,
+                                extra={
+                                    "event": "upstream_retry",
+                                    "provider": target.provider,
+                                    "model": target.model,
+                                    "attempt": attempt + 1,
+                                    "retryable": exc.retryable,
+                                    "status_code": exc.status_code,
+                                    "error_message": exc.message,
+                                },
+                            )
                             await self._backoff(attempt)
                     if result is not None:
                         event.fallbacks = route_index
+                        if route_index > 0:
+                            logger.warning(
+                                "Primary route failed; falling back to route %d (%s/%s)",
+                                route_index,
+                                target.provider,
+                                target.model,
+                                extra={
+                                    "event": "route_fallback",
+                                    "provider": target.provider,
+                                    "model": target.model,
+                                    "route_index": route_index,
+                                    "requested_model": requested_model,
+                                },
+                            )
                         break
                 if result is None or selected is None:
                     raise last_error or GatewayError(
@@ -163,6 +192,7 @@ class GatewayService:
                     event.cached_tokens,
                 )
             await self._record_usage_safely(event)
+            request_id_var.reset(token)
 
     async def stream(
         self,
@@ -185,6 +215,7 @@ class GatewayService:
         )
 
         async def generate() -> AsyncIterator[bytes]:
+            token = request_id_var.set(request_id)
             started = time.perf_counter()
             emitted = False
             completed = False
@@ -207,6 +238,20 @@ class GatewayService:
                             event.provider = target.provider
                             event.upstream_model = target.model
                             event.fallbacks = route_index
+                            if route_index > 0:
+                                logger.warning(
+                                    "Primary route failed; streaming from route %d (%s/%s)",
+                                    route_index,
+                                    target.provider,
+                                    target.model,
+                                    extra={
+                                        "event": "route_fallback",
+                                        "provider": target.provider,
+                                        "model": target.model,
+                                        "route_index": route_index,
+                                        "requested_model": requested_model,
+                                    },
+                                )
                             parse_buffer = ""
                             async for chunk in opened.response.aiter_bytes():
                                 if await is_disconnected():
@@ -259,6 +304,19 @@ class GatewayService:
                             ):
                                 break
                             event.retries += 1
+                            logger.warning(
+                                "Upstream stream failed (%s); retrying on same route",
+                                upstream_error.error_type,
+                                extra={
+                                    "event": "upstream_retry",
+                                    "provider": target.provider,
+                                    "model": target.model,
+                                    "attempt": attempt + 1,
+                                    "retryable": upstream_error.retryable,
+                                    "status_code": upstream_error.status_code,
+                                    "error_message": upstream_error.message,
+                                },
+                            )
                             await self._backoff(attempt)
                         finally:
                             if opened is not None:
@@ -304,6 +362,7 @@ class GatewayService:
                         checkpoint_content,
                     )
                 await self._record_usage_safely(event)
+                request_id_var.reset(token)
 
         return generate(), request_id
 

@@ -1,4 +1,6 @@
 
+import logging
+
 import pytest
 from tests.conftest import make_config
 
@@ -13,6 +15,7 @@ from gateway.application.structured import (
 from gateway.domain.config import PriceConfig
 from gateway.domain.errors import GatewayError, StructuredOutputError
 from gateway.infrastructure.config import load_config
+from gateway.observability.logging_setup import request_id, request_id_var
 
 
 def test_load_config_expands_env_and_resolves_db(tmp_path, monkeypatch):
@@ -102,13 +105,37 @@ def test_router_weighted_round_robin_rotates_primary(tmp_path):
     assert first != second
 
 
-def test_router_circuit_breaker_opens_after_threshold(tmp_path):
+def test_router_circuit_breaker_opens_after_threshold(tmp_path, caplog):
     config = _config(tmp_path, circuit_breaker={"failure_threshold": 1, "cooldown_seconds": 30})
     router = ModelRouter(config)
-    router.record_failure("primary")
-    providers = [c.provider for c in router.candidates("smart", "chat")]
+    with caplog.at_level(logging.WARNING, logger="gateway.application.router"):
+        router.record_failure("primary")
+        providers = [c.provider for c in router.candidates("smart", "chat")]
     assert "primary" not in providers
     assert router.status()["primary"]["open"] is True
+
+    events = [r for r in caplog.records if r.__dict__.get("event") == "circuit_breaker_open"]
+    assert len(events) == 1
+    assert events[0].__dict__["provider"] == "primary"
+    assert events[0].__dict__["failures"] == 1
+
+
+def test_router_circuit_breaker_half_open_after_cooldown(tmp_path, caplog):
+    config = _config(tmp_path, circuit_breaker={"failure_threshold": 1, "cooldown_seconds": 0})
+    router = ModelRouter(config)
+    router.record_failure("primary")
+    with caplog.at_level(logging.INFO, logger="gateway.application.router"):
+        providers = [c.provider for c in router.candidates("smart", "chat")]
+    assert providers
+    events = [r for r in caplog.records if r.__dict__.get("event") == "circuit_breaker_half_open"]
+    assert len(events) == 1
+
+
+def test_request_id_context_binds_and_resets():
+    assert request_id_var.get() is None
+    with request_id("req_abc"):
+        assert request_id_var.get() == "req_abc"
+    assert request_id_var.get() is None
 
 
 def test_calculate_cost_with_cached_tokens():
