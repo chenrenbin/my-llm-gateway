@@ -28,6 +28,14 @@ stream_checkpoint:
   flush_interval_seconds: 1
   max_chars: 200000
 
+# Background sweep deletes rows past their TTL so the DB stays bounded
+# (checkpoints can otherwise accumulate one permanently-growing row per stream).
+retention:
+  enabled: true
+  checkpoint_ttl_hours: 24
+  usage_event_ttl_days: 90
+  sweep_interval_seconds: 3600
+
 providers:
   deepseek:
     base_url: https://api.deepseek.com

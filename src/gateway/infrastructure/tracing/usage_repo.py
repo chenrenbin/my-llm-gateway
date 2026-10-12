@@ -66,6 +66,10 @@ class SqliteUsageRepository:
                 )
                 """
             )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_checkpoints_updated "
+                "ON stream_checkpoints(updated_at)"
+            )
             await db.commit()
 
     async def record(self, event: UsageEvent) -> None:
@@ -149,6 +153,26 @@ class SqliteUsageRepository:
             )
             row = await cursor.fetchone()
         return dict(row) if row else None
+
+    async def prune_checkpoints(self, before: datetime) -> int:
+        async with aiosqlite.connect(self._database_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM stream_checkpoints WHERE updated_at < ?",
+                (before.isoformat(),),
+            )
+            removed = max(cursor.rowcount, 0)
+            await db.commit()
+        return removed
+
+    async def prune_usage_events(self, before: datetime) -> int:
+        async with aiosqlite.connect(self._database_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM usage_events WHERE created_at < ?",
+                (before.isoformat(),),
+            )
+            removed = max(cursor.rowcount, 0)
+            await db.commit()
+        return removed
 
 
 def usage_from_payload(payload: dict[str, Any]) -> tuple[int, int, int]:

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 from .models import UsageEvent
@@ -47,3 +48,7 @@ class UsageRepository(Protocol):
     ) -> None: ...
 
     async def get_checkpoint(self, request_id: str) -> dict[str, Any] | None: ...
+
+    async def prune_checkpoints(self, before: datetime) -> int: ...
+
+    async def prune_usage_events(self, before: datetime) -> int: ...

@@ -153,6 +153,8 @@ retry:
 circuit_breaker: {failure_threshold: 5, cooldown_seconds: 30}
 rate_limit: {enabled: true, requests_per_minute: 60, burst: 10}
 stream_checkpoint: {enabled: false, flush_interval_seconds: 1, max_chars: 200000}
+# 后台清理：按 TTL 删除过期 checkpoint / usage 记录，防止行数无限增长
+retention: {enabled: true, checkpoint_ttl_hours: 24, usage_event_ttl_days: 90, sweep_interval_seconds: 3600}
 
 providers:
   deepseek:

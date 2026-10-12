@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from .api.routes import router
 from .application.gateway import GatewayService
+from .application.maintenance import RetentionWorker
 from .application.rate_limit import InMemoryRateLimiter
 from .application.router import ModelRouter
 from .domain.config import GatewayConfig
@@ -53,7 +54,10 @@ def create_app(
         app.state.gateway = GatewayService(
             gateway_config, model_router, upstream, prompts, usage
         )
+        app.state.retention = RetentionWorker(usage, gateway_config)
+        app.state.retention.start()
         yield
+        await app.state.retention.stop()
         await upstream.close()
 
     app = FastAPI(

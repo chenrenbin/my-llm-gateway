@@ -35,6 +35,17 @@ class StreamCheckpointConfig(BaseModel):
     max_chars: int = Field(default=200_000, ge=1_000, le=10_000_000)
 
 
+class RetentionConfig(BaseModel):
+    """Bounds table growth by age; a background sweep deletes rows past their TTL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    checkpoint_ttl_hours: int = Field(default=24, ge=1)
+    usage_event_ttl_days: int = Field(default=90, ge=1)
+    sweep_interval_seconds: float = Field(default=3600, ge=10, le=86_400)
+
+
 class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -86,6 +97,7 @@ class GatewayConfig(BaseModel):
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     stream_checkpoint: StreamCheckpointConfig = Field(default_factory=StreamCheckpointConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     providers: dict[str, ProviderConfig]
     models: dict[str, ModelRouteConfig]
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)
