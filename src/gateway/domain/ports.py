@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
@@ -9,6 +10,16 @@ from .models import UsageEvent
 class OpenStream:
     response: Any
     provider_name: str
+
+
+class UpstreamTranslator(Protocol):
+    def path(self, api: str) -> str: ...
+    def headers(self, provider: Any, request_id: str) -> dict[str, str]: ...
+    def encode(self, body: dict[str, Any]) -> dict[str, Any]: ...
+    def decode(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def stream_transform(
+        self,
+    ) -> Callable[[AsyncIterator[bytes]], AsyncIterator[bytes]] | None: ...
 
 
 class UpstreamClient(Protocol):

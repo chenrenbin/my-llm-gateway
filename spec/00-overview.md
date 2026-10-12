@@ -49,25 +49,30 @@ llm-gateway/
     │   ├── router.py                  # ModelRouter：candidates / 熔断 / weighted_round_robin
     │   ├── structured.py              # schema 提取 / 内容抽取 / JSON Schema 校验 / 修复指令
     │   ├── costing.py                 # calculate_cost（含 cached 折扣）
-    │   └── rate_limit.py              # InMemoryRateLimiter（令牌桶）
+    │   ├── rate_limit.py              # InMemoryRateLimiter（令牌桶）
+    │   └── maintenance.py             # RetentionWorker（按 TTL 清理 checkpoint/usage）
     ├── domain/
     │   ├── config.py                  # GatewayConfig/ProviderConfig/RouteTarget/ModelRouteConfig/
     │   │                              #   RetryConfig/CircuitBreakerConfig/RateLimitConfig/
-    │   │                              #   StreamCheckpointConfig/PriceConfig
+    │   │                              #   StreamCheckpointConfig/RetentionConfig/PriceConfig
     │   ├── models.py                  # UsageEvent
     │   ├── contracts.py               # PromptCreate / PromptRecord
     │   ├── errors.py                  # GatewayError/UpstreamError/StructuredOutputError/error_payload
     │   └── ports.py                   # UpstreamClient/OpenStream/UsageRepository（Protocol）
     ├── infrastructure/
-    │   ├── providers/upstream.py      # HttpxUpstreamClient（request_json / open_stream）
-    │   ├── tracing/usage_repo.py      # SqliteUsageRepository（usage_events + stream_checkpoints）+ usage_from_payload
+    │   ├── providers/upstream.py      # HttpxUpstreamClient（request_json / open_stream，按 dialect 分派）
+    │   ├── providers/dialects.py      # Anthropic Messages → OpenAI 规范形状翻译（请求/响应/SSE）
+    │   ├── tracing/usage_repo.py      # SqliteUsageRepository（usage_events + stream_checkpoints + prune_*）+ usage_from_payload
     │   └── config.py                  # load_config（yaml + ${ENV} 展开 + fail-fast）
     ├── prompts/repository.py          # PromptRepository（版本化 + Jinja2 Sandbox）
     └── observability/logging_setup.py # 结构化 JSON 日志
 └── tests/
     ├── conftest.py                    # make_config / gateway_client / auth_headers
     ├── test_gateway.py                # 端到端：chat/SSE/responses/prompt/限流/404/熔断
-    └── test_units.py                  # 配置/路由/成本/结构化 单测
+    ├── test_units.py                  # 配置/路由/成本/结构化/日志上下文 单测
+    ├── test_streaming_cancellation.py # 流式断连/取消 + checkpoint 复盘（确定性，无 sleep）
+    ├── test_retention.py              # TTL 清理：prune_* + RetentionWorker
+    └── test_provider_dialects.py      # Anthropic 方言：请求/响应/流式翻译 + usage
 ```
 
 ---
@@ -82,6 +87,13 @@ class OpenStream:
     response: Any          # httpx 响应（可 aiter_bytes / aclose）
     provider_name: str
 
+class UpstreamTranslator(Protocol):
+    def path(self, api: str) -> str: ...
+    def headers(self, provider: Any, request_id: str) -> dict[str, str]: ...
+    def encode(self, body: dict[str, Any]) -> dict[str, Any]: ...
+    def decode(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+    def stream_transform(self) -> Callable[[AsyncIterator[bytes]], AsyncIterator[bytes]] | None: ...
+
 class UpstreamClient(Protocol):
     async def request_json(provider_name, path, body, request_id) -> dict: ...
     async def open_stream(provider_name, path, body, request_id) -> OpenStream: ...
@@ -93,6 +105,8 @@ class UsageRepository(Protocol):
     async def recent(self, limit: int = 100) -> list[dict]: ...
     async def save_checkpoint(self, request_id, api, model, status, content) -> None: ...
     async def get_checkpoint(self, request_id) -> dict | None: ...
+    async def prune_checkpoints(self, before: datetime) -> int: ...
+    async def prune_usage_events(self, before: datetime) -> int: ...
 ```
 
 ### 3.2 `domain/errors.py`
@@ -127,6 +141,7 @@ class UsageRepository(Protocol):
 7. 计费用**实际上游模型**价格（含 cached 折扣），`calculate_cost` 入 `UsageEvent`；用量落地失败不阻塞主链路（best-effort + 异常日志）。
 8. 隐私与安全：账本存 `api_key_hash`（指纹），不存明文密钥/文本；API Key 只在 infrastructure 解密。
 9. 错误标准化：内部统一 `GatewayError`，api 层映射 OpenAI 风格错误对象，不泄露内部堆栈。
+10. 存储有界：`usage_events`（每请求一行）与 `stream_checkpoints`（每请求一行）由 `RetentionWorker` 按 `retention` TTL 后台清理；不得有无 TTL 的无限增长。
 
 ---
 

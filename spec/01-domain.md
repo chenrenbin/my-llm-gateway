@@ -31,10 +31,18 @@ class StreamCheckpointConfig(BaseModel):
     flush_interval_seconds: float = Field(default=1, ge=0.1, le=60)
     max_chars: int = Field(default=200_000, ge=1_000, le=10_000_000)
 
+class RetentionConfig(BaseModel):          # 背景清理：按 TTL 删除过期行，封住表增长
+    enabled: bool = True
+    checkpoint_ttl_hours: int = Field(default=24, ge=1)
+    usage_event_ttl_days: int = Field(default=90, ge=1)
+    sweep_interval_seconds: float = Field(default=3600, ge=10, le=86_400)
+
 class ProviderConfig(BaseModel):
     base_url: str                                        # 尾部 "/" 在 validator 中归一化
     api_key: SecretStr = SecretStr("")
     enabled: bool = True
+    dialect: Literal["openai", "anthropic"] = "openai"
+    api_version: str = "2023-06-01"                      # 仅 anthropic 方言使用
     timeout_seconds: float = Field(default=120, gt=0)
     connect_timeout_seconds: float = Field(default=10, gt=0)
     extra_headers: dict[str, str] = Field(default_factory=dict)
@@ -63,6 +71,7 @@ class GatewayConfig(BaseModel):
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     stream_checkpoint: StreamCheckpointConfig = Field(default_factory=StreamCheckpointConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     providers: dict[str, ProviderConfig]                      # 必填
     models: dict[str, ModelRouteConfig]                       # 必填
     pricing: dict[str, PriceConfig] = Field(default_factory=dict)
@@ -131,10 +140,10 @@ class GatewayError(Exception):
     def __init__(self, message, *, status_code=500, error_type="gateway_error",
                  code=None, param=None, details=None): ...
 
-class UpstreamError(GatewayError):       # 默认 502，带 retryable: bool
+class UpstreamError(GatewayError):       # 默认 502，error_type="upstream_error"，retryable: bool = False
     ...
 
-class StructuredOutputError(GatewayError):  # 422, code="invalid_model_output"
+class StructuredOutputError(GatewayError):  # 422, error_type="structured_output_error", code="invalid_model_output"
     ...
 
 def error_payload(error) -> dict:         # OpenAI 风格 {"error":{message,type,param,code}}
@@ -150,6 +159,7 @@ def error_payload(error) -> dict:         # OpenAI 风格 {"error":{message,type
 
 ## 验收（unit 要点）
 - `GatewayConfig` 构造时引用未声明 provider → 抛错。
-- `UpstreamError(message, retryable=True)` 保留 `retryable` 且 `error_type=="upstream_error"`。
+- `UpstreamError(message, retryable=True)` 保留 `retryable`；默认 `retryable=False`、`error_type=="upstream_error"`。
+- `RetentionConfig` 默认 `enabled=True`（checkpoint 24h / usage 90d），`sweep_interval_seconds ∈ [10, 86400]`。
 - `error_payload` 输出结构含 `error.message/type/param/code`。
 - `PromptCreate` 的 id 不匹配合法模式 → 校验失败；`activate=True` 语义为「创建并设为激活」。

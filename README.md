@@ -82,7 +82,8 @@ llm-gateway/
 │   │   ├── errors.py               # GatewayError / UpstreamError / error_payload
 │   │   └── ports.py                # UpstreamClient / UsageRepository
 │   ├── infrastructure/
-│   │   ├── providers/upstream.py   # httpx 上游客户端（json + stream）
+│   │   ├── providers/upstream.py   # httpx 上游客户端（json + stream，按 dialect 分派）
+│   │   ├── providers/dialects.py   # Anthropic Messages → OpenAI 规范形状翻译
 │   │   ├── tracing/usage_repo.py   # SQLite 用量账本 + checkpoints
 │   │   └── config.py               # load_config（yaml + ${ENV} 展开）
 │   ├── prompts/repository.py       # 版本化 Prompt（SQLite + Jinja2 Sandbox）
@@ -160,6 +161,11 @@ providers:
   deepseek:
     base_url: https://api.deepseek.com
     api_key: ${DEEPSEEK_API_KEY:-}
+    dialect: openai                 # openai(默认) | anthropic
+  anthropic:
+    base_url: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY:-}
+    dialect: anthropic              # 走 /v1/messages，网关自动翻译成 OpenAI 形状
 
 models:
   general-primary:
@@ -167,6 +173,12 @@ models:
     routes:
       - {provider: deepseek, model: deepseek-v4-flash, api: both}
       - {provider: deepseek_backup, model: deepseek-chat, api: both}
+  deepseek-v4-pro:                # 经由 OpenAI Responses API 上游
+    routes:
+      - {provider: deepseek, model: deepseek-v4-pro, api: responses}
+  claude-sonnet:                  # 经由 Anthropic Messages API 上游
+    routes:
+      - {provider: anthropic, model: claude-sonnet-4-5, api: chat}
 
 pricing:                          # USD / 1M tokens
   deepseek-v4-flash: {input_per_million: 1.0, output_per_million: 4.0}
@@ -175,6 +187,7 @@ pricing:                          # USD / 1M tokens
 - `${ENV}` / `${ENV:-default}` 在加载时展开；`api_key` 用 `SecretStr`，只在 infrastructure 层解密。
 - **fail-fast**：YAML 非法、路由指向未声明的 provider 都会导致启动失败。
 - `api` 取值 `chat` / `responses` / `both`，决定该路由可服务的协议。
+- `dialect`（`openai` 默认 / `anthropic`）决定**上游**协议；无论哪种，调用方始终用 OpenAI 兼容接口，Anthropic Messages 由 infrastructure 层双向翻译（`anthropic` 方言不支持 `responses`）。
 
 ---
 

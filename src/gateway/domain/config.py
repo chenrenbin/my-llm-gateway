@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 class RetryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    max_attempts_per_route: int = Field(default=2, ge=1, le=5)
+    max_attempts_per_route: int = Field(default=3, ge=1, le=5)
     base_delay_seconds: float = Field(default=0.25, ge=0, le=10)
     max_delay_seconds: float = Field(default=4, ge=0, le=60)
     retry_statuses: set[int] = {408, 409, 429, 500, 502, 503, 504}
@@ -52,6 +52,8 @@ class ProviderConfig(BaseModel):
     base_url: str
     api_key: SecretStr = SecretStr("")
     enabled: bool = True
+    dialect: Literal["openai", "anthropic"] | str = "openai"
+    api_version: str = "2023-06-01"
     timeout_seconds: float = Field(default=120, gt=0)
     connect_timeout_seconds: float = Field(default=10, gt=0)
     extra_headers: dict[str, str] = Field(default_factory=dict)

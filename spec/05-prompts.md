@@ -16,7 +16,7 @@
 **API**
 - `initialize()`：建表（幂等）。
 - `create_version(prompt: PromptCreate) -> PromptRecord`：
-  - `BEGIN IMMEDIATE` 下 `SELECT COALESCE(MAX(version),0)+1` 得新版本号（**自动递增**；`PromptCreate.version` 固定为版本号语义）。
+  - `BEGIN IMMEDIATE` 下 `SELECT COALESCE(MAX(version),0)+1` 得新版本号（**自动递增**；`PromptCreate` 不含 `version` 字段，版本由服务端分配）。
   - `activate=True` 时先清空同 id 的激活标记，再插入 `is_active=1`。
 - `get(prompt_id, version=None) -> PromptRecord`：`version` 缺省取激活版本（`is_active=1 ORDER BY version DESC`）；找不到抛 `GatewayError(404, "prompt_not_found")`。
 - `list() -> list[PromptRecord]`：全量，按 `id, version DESC`。

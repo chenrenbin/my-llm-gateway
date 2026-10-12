@@ -162,6 +162,9 @@ class SqliteUsageRepository:
             )
             removed = max(cursor.rowcount, 0)
             await db.commit()
+            if removed > 0:
+                await db.execute("VACUUM")
+                await db.commit()
         return removed
 
     async def prune_usage_events(self, before: datetime) -> int:
@@ -172,6 +175,9 @@ class SqliteUsageRepository:
             )
             removed = max(cursor.rowcount, 0)
             await db.commit()
+            if removed > 0:
+                await db.execute("VACUUM")
+                await db.commit()
         return removed
 
 

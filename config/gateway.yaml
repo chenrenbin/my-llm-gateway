@@ -8,7 +8,7 @@ database_url: data/gateway.db
 structured_output_retries: 1
 
 retry:
-  max_attempts_per_route: 2
+  max_attempts_per_route: 3
   base_delay_seconds: 0.25
   max_delay_seconds: 4
   retry_statuses: [408, 409, 429, 500, 502, 503, 504]
@@ -50,6 +50,14 @@ providers:
     api_key: ${OPENAI_API_KEY:-}
     enabled: false
     timeout_seconds: 120
+  # Second upstream protocol: Anthropic Messages. The gateway translates it to
+  # the canonical OpenAI shape, so callers still use /v1/chat/completions.
+  anthropic:
+    base_url: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY:-}
+    dialect: anthropic
+    api_version: "2023-06-01"
+    timeout_seconds: 120
 
 models:
   general-primary:
@@ -62,6 +70,23 @@ models:
         model: deepseek-chat
         api: both
 
+  # Demo of the two upstream protocols:
+  # DeepSeek v4 pro is served through the OpenAI Responses API...
+  deepseek-v4-pro:
+    strategy: priority
+    routes:
+      - provider: deepseek
+        model: deepseek-v4-pro
+        api: responses
+
+  # ...while Claude is served through the Anthropic Messages API.
+  claude-sonnet:
+    strategy: priority
+    routes:
+      - provider: anthropic
+        model: claude-sonnet-4-5
+        api: chat
+
 # USD per 1M tokens.
 pricing:
   deepseek-v4-flash:
@@ -70,3 +95,11 @@ pricing:
   deepseek-chat:
     input_per_million: 0.8
     output_per_million: 3.2
+  deepseek-v4-pro:
+    input_per_million: 1.2
+    output_per_million: 5.0
+  claude-sonnet-4-5:
+    input_per_million: 3.0
+    output_per_million: 15.0
+    cached_input_per_million: 0.3
+

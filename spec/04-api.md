@@ -16,15 +16,15 @@
 - `PromptRender`：`extra="forbid"`，`version?` + `variables`；`PromptCreate` 复用 `domain/contracts`。
 
 ### `api/responses.py`
-- `ModelObject(id, created, owned_by="llm-gateway")` / `ModelList(object="list", data: list[ModelObject])`（`GET /v1/models`）。
-- `ErrorDetail(message, type, param, code[, details])` / `ErrorResponse(error: ErrorDetail)`（统一错误模型）。
+- `ModelObject(id, object="model", created, owned_by="llm-gateway")` / `ModelList(object="list", data: list[ModelObject])`（`GET /v1/models`）。
+- `ErrorDetail(message, type, param, code)` / `ErrorResponse(error: ErrorDetail)`（仅用于文档模型；实际错误体由 `error_payload` 生成，`details` 非空时附加）。
 - `PromptRecord` **re-export** 自 `domain.contracts`（供 `/v1/prompts` 响应）。
 
 ### `api/security.py`
-- `key_fingerprint(key: str) -> str`：sha256 前 16 位（账本只存指纹，不存明文）。
+- `key_fingerprint(key: str | None) -> str`：sha256 前 16 位（账本只存指纹，不存明文）。
 - `authenticate(request) -> str`（Depends）：
-  - 空 `api_keys`（开发模式）→ 返回 `key_fingerprint("dev")`。
-  - 否则校验 `Authorization: Bearer <key>` 或 `X-Api-Key: <key>`（HMAC constant-time 比较）；失败抛 `GatewayError(401, "invalid_api_key", error_type="invalid_request_error")`。
+  - 空 `api_keys`（开发模式）→ 返回 `key_fingerprint(request.client.host)`（无 client → `key_fingerprint(None)` = `"anonymous"`）。
+  - 否则取 `X-Api-Key` 为默认，若 `Authorization: Bearer <key>` 存在则**覆盖**之；用 `hmac.compare_digest` 逐一比对配置密钥；失败抛 `GatewayError(401, code="invalid_api_key", error_type="authentication_error")`。
 
 ### `api/routes.py`（全部端点）
 每个受保护端点组依赖 `limited_identity = authenticate + InMemoryRateLimiter.check(identity)`（429 抛 `GatewayError`，由全局 handler 加 `Retry-After` 头）。
@@ -40,7 +40,7 @@
 
 ### `main.py`（装配）
 - `create_app(config|None, *, http_client|None)`：
-  - lifespan：`mkdir(db parent)` → `PromptRepository` + `SqliteUsageRepository`（同 db）→ `initialize()` → `ModelRouter` → `HttpxUpstreamClient(config, http_client)`（可选注入 `http_client` 便于测试）→ 组装 `InMemoryRateLimiter` + `GatewayService` → 挂 `app.state.*`；退出时 `upstream.close()`。
+  - lifespan：`mkdir(db parent)` → `PromptRepository` + `SqliteUsageRepository`（同 db）→ `initialize()` → `ModelRouter` → `HttpxUpstreamClient(config, http_client)`（可选注入 `http_client` 便于测试）→ 组装 `InMemoryRateLimiter` + `GatewayService` + `RetentionWorker` → 挂 `app.state.*` → `retention.start()`；退出时 `await retention.stop()` 再 `upstream.close()`。
   - `add_exception_handler(GatewayError, …)`：`status_code == 429` 时加 `Retry-After: 1`；响应 `error_payload`。
   - `add_exception_handler(RequestValidationError, …)`：422 + `type=invalid_request_error, code=validation_error, details=exc.errors()`。
 - `build_app(config|None, *, http_client|None)`：生产工厂（`uvicorn gateway.main:build_app --factory`）：`load_config()`（fail-fast）→ `logging_setup.init()` → `create_app(...)`。
