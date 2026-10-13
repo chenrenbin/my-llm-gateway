@@ -41,7 +41,7 @@ llm-gateway/
     │   ├── routes.py                  # /v1/chat/completions · /v1/responses · /v1/models ·
     │   │                              #   /v1/prompts · /admin/usage · /admin/routes ·
     │   │                              #   /v1/streams/{id}/checkpoint · /healthz · /readyz
-    │   ├── requests.py                # ChatCompletionRequest/ResponsesRequest/...（extra=allow 透传）
+    │   ├── requests.py                # ChatCompletionRequest/ResponsesRequest/...（extra=forbid 严格入参）
     │   ├── responses.py               # ModelObject/ModelList/ErrorDetail/ErrorResponse
     │   └── security.py                # Bearer / X-Api-Key 鉴权 + 密钥指纹
     ├── application/
@@ -132,7 +132,7 @@ class UsageRepository(Protocol):
 
 ## 4. 硬约束（全局，任何层都不得违反）
 
-1. 最外层（路由）对**未知字段透传**（`extra="allow"`），保证 OpenAI SDK 兼容；结构化输出能力透传上游（JSON Schema / text.format），本地做二次校验。
+1. 最外层（路由）对**入参严格校验**（`extra="forbid"`），未知字段一律 422；结构化输出能力透传上游（JSON Schema / text.format），本地做二次校验。
 2. 分层隔离：`domain` 不依赖 FastAPI / httpx；`application` 只依赖 `domain` + `ports` + DI；唯一 I/O 边界在 `infrastructure`。
 3. 配置 fail-fast、不热加载：未知 provider、非法 YAML 启动即失败；改配置需重启。
 4. 路由/重试/熔断规则：`ModelRouter` 过滤不可用 provider → 每路由内重试（`max_attempts_per_route`，指数退避+抖动，仅 retryable）→ 降级下一候选。

@@ -8,7 +8,7 @@
 ## 交付文件
 
 ### `api/requests.py`（Pydantic 入参）
-- `FlexibleModel`：`extra="allow"`，**未知字段透传上游**（OpenAI SDK 兼容的落点）。
+- `FlexibleModel`：`extra="forbid"`，**入参严格校验，未知字段一律拒绝**。
 - `ChatMessage(FlexibleModel)`：`role`（system/developer/user/assistant/tool/function）、`content: Any`、`name/tool_call_id` 可选。
 - `PromptReference(FlexibleModel)`：`id`、`version?`、`variables`、`position: prepend|append`。
 - `ChatCompletionRequest(FlexibleModel)`：`model`、`messages`、`stream=False`、`temperature/top_p/max_tokens/max_completion_tokens/response_format`、`gateway_prompt?`。
@@ -46,7 +46,7 @@
 - `build_app(config|None, *, http_client|None)`：生产工厂（`uvicorn gateway.main:build_app --factory`）：`load_config()`（fail-fast）→ `logging_setup.init()` → `create_app(...)`。
 
 ## 约束
-- 入参宽松（passthrough）、错误响应统一 OpenAI 结构；不再出现旧 `/v1/llm`、`/v1/traces`、`/v1/metrics`。
+- 入参严格（`extra="forbid"`，未知字段 422）、错误响应统一 OpenAI 结构；不再出现旧 `/v1/llm`、`/v1/traces`、`/v1/metrics`。
 - 所有账号主体信息只进指纹；api 层不写业务日志细节。
 - 流式用 `request.is_disconnected` 注入 `GatewayService`，api 层不直接 import 上游 Provider。
 

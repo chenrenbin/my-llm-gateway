@@ -15,9 +15,9 @@ __all__ = [
 
 
 class FlexibleModel(BaseModel):
-    """OpenAI-compatible passthrough: unknown fields are forwarded to upstream."""
+    """Strict input: unknown fields are rejected (extra="forbid")."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ChatMessage(FlexibleModel):

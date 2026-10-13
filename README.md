@@ -66,7 +66,7 @@ llm-gateway/
 │   ├── main.py                     # create_app() / build_app()（lifespan 装配）
 │   ├── api/
 │   │   ├── routes.py               # chat/responses/models/prompts/admin/health
-│   │   ├── requests.py             # OpenAI 兼容入参（extra=allow 透传）
+│   │   ├── requests.py             # OpenAI 兼容入参（extra=forbid 严格校验）
 │   │   ├── responses.py            # ModelList / ErrorResponse
 │   │   └── security.py             # 鉴权 + 密钥指纹
 │   ├── application/
@@ -195,7 +195,7 @@ pricing:                          # USD / 1M tokens
 
 ### `POST /v1/chat/completions`
 
-标准 OpenAI Chat Completions 请求体（未知字段原样透传）。`stream=true` 时返回 `text/event-stream`，
+标准 OpenAI Chat Completions 请求体（未知字段会被拒绝）。`stream=true` 时返回 `text/event-stream`，
 逐块透明转发上游 SSE。`gateway_prompt` 可引用一个受控模板：
 
 ```json
